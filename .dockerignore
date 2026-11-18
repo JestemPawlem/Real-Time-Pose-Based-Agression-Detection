@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+*.py[cod]
+.ruff_cache
+data
+datasets
+*.mp4
+*.avi
+*.pt
+*.pth
+*.onnx
+.env
+wandb
