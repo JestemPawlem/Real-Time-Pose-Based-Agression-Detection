@@ -8,11 +8,26 @@ dependencies = [
     "ipykernel>=7.4.0",
     "jupyter>=1.1.1",
     "kagglehub>=1.0.3",
+    "matplotlib>=3.11.2",
     "numpy>=2.5.4",
     "onnx>=1.23.2",
     "onnxruntime>=1.31.1",
+    "opencv-python>=5.1.0.95",
+    "pandas>=3.1.1",
+    "scikit-learn>=1.9.1",
+    "seaborn>=0.13.2",
     "torch==2.11.0+cu128",
+    "tqdm>=4.70.1",
+    "ultralytics>=8.4.215",
+    "wandb>=0.31.0",
 ]
 
 [[tool.uv.index]]
 url = "https://download.pytorch.org/whl/cu128"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+]
