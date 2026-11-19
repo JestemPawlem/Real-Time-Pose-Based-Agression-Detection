@@ -1,0 +1,23 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aggression-detection:latest
+    container_name: aggression-detection
+    shm_size: '8gb'
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./weights:/app/weights
+      - ./logs:/app/logs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true
