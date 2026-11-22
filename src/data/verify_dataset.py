@@ -1,35 +1,17 @@
 from pathlib import Path
 
-import cv2
-
 from src.utils import get_logger
+from src.utils.video import VIDEO_EXTENSIONS, get_video_metadata
 
 logger = get_logger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATA_DIR = PROJECT_ROOT / 'data' / 'raw' / 'RWF-2000'
 CORRUPTED_REPORT_PATH = PROJECT_ROOT / 'logs' / 'corrupted_videos.txt'
-VIDEO_EXTENSIONS = {'.avi', '.mp4', '.mkv', '.mov'}
-
-
-def check_video_integrity(video_path: Path) -> bool:
-    """Verify that a video file opens cleanly and contains readable frames."""
-    cap = cv2.VideoCapture(str(video_path))
-    try:
-        if not cap.isOpened():
-            return False
-
-        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        ret, frame = cap.read()
-
-        return bool(ret and frame is not None and frame_count > 0 and fps > 0)
-    finally:
-        cap.release()
 
 
 def verify_dataset(dataset_dir: Path = DEFAULT_DATA_DIR) -> bool:
-    """Scan dataset directories and verify video file integrity."""
+    """Scan dataset directories dynamically and verify video file integrity."""
     if not dataset_dir.exists():
         logger.error(f'Dataset directory not found: {dataset_dir}')
         return False
@@ -51,14 +33,14 @@ def verify_dataset(dataset_dir: Path = DEFAULT_DATA_DIR) -> bool:
 
             for video_path in videos:
                 total_checked += 1
-                if check_video_integrity(video_path):
+                if get_video_metadata(video_path) is not None:
                     valid_in_class += 1
                     total_valid += 1
                 else:
                     corrupted_files.append(video_path)
                     logger.warning(f'Corrupted or unreadable video: {video_path}')
 
-            logger.info(f'{split_dir.name}/{class_dir.name}: {valid_in_class}/{len(videos)} valid')
+            logger.info(f'{split_dir.name}/{class_dir.name}: {valid_in_class}/{len(videos)} valid ')
 
     logger.info(
         f'Verification finished: {total_valid}/{total_checked} valid clips, {len(corrupted_files)} corrupted.'

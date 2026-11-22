@@ -3,7 +3,8 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-LOG_DIR = Path('logs')
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+LOG_DIR = PROJECT_ROOT / 'logs'
 LOG_FILE = LOG_DIR / 'app.log'
 LOG_FORMAT = '%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s'
 DATE_FORMAT = '%Y-%m-%d %H:%M:%S'

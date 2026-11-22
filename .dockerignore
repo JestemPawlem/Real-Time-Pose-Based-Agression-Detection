@@ -12,3 +12,6 @@ datasets
 *.onnx
 .env
 wandb
+
+/notebooks/
+/reports/
