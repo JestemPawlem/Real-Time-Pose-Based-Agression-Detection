@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -6,7 +7,7 @@ import cv2
 VIDEO_EXTENSIONS = {'.avi', '.mp4', '.mkv', '.mov'}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class VideoMetadata:
     fps: float
     frame_count: int
@@ -14,7 +15,7 @@ class VideoMetadata:
     height: int
 
     def __post_init__(self) -> None:
-        if self.fps <= 0:
+        if not math.isfinite(self.fps) or self.fps <= 0:
             raise ValueError(f'fps must be positive, got {self.fps}')
         if self.frame_count <= 0:
             raise ValueError(f'frame_count must be positive. got {self.frame_count}')
@@ -55,3 +56,9 @@ def get_video_metadata(video_path: Path) -> VideoMetadata | None:
         return None
     finally:
         cap.release()
+
+
+def extract_source_group(video_path: Path) -> str:
+    """Extract source clip prefix from filename."""
+    stem = video_path.stem
+    return stem.rsplit('_', 1)[0] if '_' in stem else stem
