@@ -11,7 +11,9 @@ wheels/
 
 .env
 
-/data/
+/data/*
+!/data/splits/
+
 /logs/
 /weights/
 /reports/
