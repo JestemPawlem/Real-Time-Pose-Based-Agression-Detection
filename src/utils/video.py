@@ -1,5 +1,6 @@
 import hashlib
 import math
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -103,3 +104,78 @@ def dhash_distance_matrix(hashes_a: np.ndarray, hashes_b: np.ndarray) -> np.ndar
     """Compute pairwise Hamming distances between two arrays of packed 64-bit dHashes."""
     xor = hashes_a[:, None, :] ^ hashes_b[None, :, :]
     return np.bitwise_count(xor).sum(axis=-1)
+
+
+def iter_video_frames(
+    video_path: Path,
+    stride: int = 1,
+    max_frames: int | None = None,
+    rgb: bool = False,
+) -> Iterator[tuple[int, np.ndarray]]:
+    """Yield (frame_index, frame) pairs from a video file using OpenCV."""
+    if stride < 1:
+        raise ValueError(f'stride must be >= 1, got {stride}')
+    if max_frames is not None and max_frames < 1:
+        raise ValueError(f'max_frames must be >= 1, got {max_frames}')
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise OSError(f'Cannot open video: {video_path}')
+
+    frame_idx = 0
+    yielded = 0
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_idx % stride == 0:
+                if rgb:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                yield frame_idx, frame
+                yielded += 1
+                if max_frames is not None and yielded >= max_frames:
+                    break
+
+            frame_idx += 1
+    finally:
+        cap.release()
+
+
+def extract_video_frames(
+    video_path: Path,
+    stride: int = 1,
+    max_frames: int | None = None,
+    rgb: bool = False,
+) -> np.ndarray:
+    """Extract video frames into a contiguous (T, H, W, C) uint8 NumPy array."""
+    frames = [
+        frame
+        for _, frame in iter_video_frames(video_path, stride=stride, max_frames=max_frames, rgb=rgb)
+    ]
+    if not frames:
+        raise ValueError(f'No frames extracted from: {video_path}')
+    return np.stack(frames, axis=0)
+
+
+def save_video_frames(
+    video_path: Path,
+    output_dir: Path,
+    stride: int = 1,
+    max_frames: int | None = None,
+    image_ext: str = '.jpg',
+) -> list[Path]:
+    """Extract and save frames from a video clip to disk."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    saved_paths: list[Path] = []
+
+    for frame_idx, frame in extract_video_frames(
+        video_path, stride=stride, max_frames=max_frames, rgb=False
+    ):
+        out_path = output_dir / f'{video_path.stem}_frame_{frame_idx:04d}{image_ext}'
+        if not cv2.imwrite(str(out_path), frame):
+            raise OSError(f'Failed to write frame to: {out_path}')
+        saved_paths.append(out_path)
+
+    return saved_paths
