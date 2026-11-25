@@ -1,12 +1,20 @@
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 
 from src.config import RANDOM_SEED, RAW_DATA_DIR, SPLIT_MANIFEST_PATH
 from src.utils.logger import get_logger
-from src.utils.video import VIDEO_EXTENSIONS, extract_source_group, get_video_metadata
+from src.utils.video import (
+    VIDEO_EXTENSIONS,
+    compute_video_fingerprint,
+    dhash_distance_matrix,
+    extract_source_group,
+    get_video_metadata,
+)
 
 logger = get_logger(__name__)
 
@@ -91,6 +99,88 @@ def log_split_summary(df: pd.DataFrame) -> None:
         )
 
 
+def deduplicate_records(
+    df: pd.DataFrame,
+    raw_dir: Path,
+    hamming_threshold: int = 4,
+    workers: int = 8,
+) -> pd.DataFrame:
+    """Remove exact SHA-256 duplicates and val clips matching train backgrounds."""
+    work = df.sort_values(['original_split', 'relative_path'], ignore_index=True).copy()
+    paths = [raw_dir / rel for rel in work['relative_path']]
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(compute_video_fingerprint, paths))
+
+    work['sha256'] = [sha for sha, _ in results]
+    dhashes = [dhash for _, dhash in results]
+
+    # 1. Exact SHA-256 deduplication across the entire dataset
+    dup_mask = work['sha256'].duplicated(keep='first')
+    if dup_mask.any():
+        logger.info('Dropping %d exact SHA-256 duplicate(s):', int(dup_mask.sum()))
+        for rel in work.loc[dup_mask, 'relative_path']:
+            logger.info('  - %s', rel)
+        keep_indices = work.index[~dup_mask].tolist()
+        work = work.loc[keep_indices].reset_index(drop=True)
+        dhashes = [dhashes[i] for i in keep_indices]
+
+    # 2. Drop val clips visually matching any train background (dHash <= threshold)
+    train_idx = [
+        i
+        for i, split in enumerate(work['original_split'])
+        if split == 'train' and dhashes[i] is not None
+    ]
+    val_idx = [
+        i
+        for i, split in enumerate(work['original_split'])
+        if split == 'val' and dhashes[i] is not None
+    ]
+
+    drop_val_indices: set[int] = set()
+    if train_idx and val_idx:
+        train_arr = np.vstack([dhashes[i] for i in train_idx])
+        val_arr = np.vstack([dhashes[i] for i in val_idx])
+        dists = dhash_distance_matrix(val_arr, train_arr)
+
+        for local_v, global_v in enumerate(val_idx):
+            min_t = int(np.argmin(dists[local_v]))
+            min_dist = int(dists[local_v, min_t])
+            if min_dist <= hamming_threshold:
+                drop_val_indices.add(global_v)
+                logger.info(
+                    'Dropping near-duplicate val clip (dHash dist=%d): %s (matches %s)',
+                    min_dist,
+                    work.at[global_v, 'relative_path'],
+                    work.at[train_idx[min_t], 'relative_path'],
+                )
+
+    if drop_val_indices:
+        keep_indices = [i for i in range(len(work)) if i not in drop_val_indices]
+        work = work.loc[keep_indices].reset_index(drop=True)
+        dhashes = [dhashes[i] for i in keep_indices]
+
+    # 3. Merge source_group for any visually matching clips inside val before val/test split
+    rem_val_idx = [
+        i
+        for i, split in enumerate(work['original_split'])
+        if split == 'val' and dhashes[i] is not None
+    ]
+    if len(rem_val_idx) > 1:
+        val_arr = np.vstack([dhashes[i] for i in rem_val_idx])
+        dists = dhash_distance_matrix(val_arr, val_arr)
+        i_idx, j_idx = np.where(
+            (dists <= hamming_threshold) & (np.triu(np.ones_like(dists), 1) > 0)
+        )
+        for a, b in zip(i_idx.tolist(), j_idx.tolist(), strict=True):
+            ga = work.at[rem_val_idx[a], 'source_group']
+            gb = work.at[rem_val_idx[b], 'source_group']
+            if ga != gb:
+                work.loc[work['source_group'] == gb, 'source_group'] = ga
+
+    return work.drop(columns=['sha256'])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description='Generate reproducible 80/10/10 train/val/test split manifest for RWF-2000.'
@@ -102,6 +192,7 @@ def main() -> None:
 
     logger.info('Scanning raw dataset in: %s', args.raw_dir)
     df = collect_dataset_records(args.raw_dir)
+    df = deduplicate_records(df, args.raw_dir)
     split_df = assign_splits(df, seed=args.seed)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
